@@ -1,4 +1,4 @@
-# algovoi-recurr
+# Algovoi-recurr
 
 The open **format and method** for AlgoVoi **Recurr Tier 2 standing authorities**: the way a
 recurring, capped, revocable on-chain payment authorization is described, signed, disclosed, and
