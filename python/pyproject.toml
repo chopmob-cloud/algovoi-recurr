@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "algovoi-recurr"
+version = "0.1.0"
+description = "Open format and method for AlgoVoi Recurr Tier 2 standing-authority recurring payments: a chain-agnostic authority descriptor and per-chain customer-signing shapes, content-addressed, no executor or keys"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "AlgoVoi", email = "chopmob@gmail.com" }]
+keywords = ["recurring-payments", "standing-authority", "psd2", "x402", "ap2", "jcs", "rfc8785", "agentic-payments"]
+dependencies = ["rfc8785>=0.1.2"]
+
+[project.urls]
+Homepage = "https://algovoi.co.uk"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["algovoi_recurr*"]

@@ -1,0 +1,13 @@
+# python
+__pycache__/
+*.pyc
+build/
+dist/
+*.egg-info/
+.venv/
+.sbomenv/
+# node
+node_modules/
+typescript/dist/
+# os
+.DS_Store

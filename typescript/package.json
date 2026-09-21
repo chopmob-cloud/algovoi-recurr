@@ -1,0 +1,16 @@
+{
+  "name": "@algovoi/recurr",
+  "version": "0.1.0",
+  "description": "Open format and method for AlgoVoi Recurr Tier 2 standing-authority recurring payments: a chain-agnostic authority descriptor and per-chain customer-signing shapes, content-addressed, no executor or keys",
+  "keywords": ["recurring-payments", "standing-authority", "psd2", "x402", "ap2", "jcs", "rfc8785", "agentic-payments"],
+  "license": "Apache-2.0",
+  "author": "AlgoVoi <chopmob@gmail.com>",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" } },
+  "files": ["dist/**/*"],
+  "scripts": { "build": "tsc" },
+  "dependencies": { "canonicalize": "^3.0.0" },
+  "devDependencies": { "typescript": "^5.4.0", "@types/node": "^20.0.0" }
+}
