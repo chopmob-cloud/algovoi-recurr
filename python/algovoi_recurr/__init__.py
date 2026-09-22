@@ -25,7 +25,7 @@ server-emitted ``stellar_soroban_auth_v2`` (function ``approve``); the older SDK
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import rfc8785
 
@@ -389,6 +389,100 @@ def disclosure_card(
     }
 
 
+# ── compose into a Keystone chain (verify offline with the external Keystone verifier) ─────────
+KEYSTONE_SCHEMA = "algovoi-keystone-chain/v2"
+KEYSTONE_COMPOSITION = "recurring-standing-authority/v1"
+# Largest integer that round-trips through a JS double (Number.MAX_SAFE_INTEGER). Above it, Node
+# rounds while Python (and RFC 8785 canonicalization) keep the exact value, so the two would emit
+# different bytes. Amounts (minor units) and ms timestamps are far below this; bounding here keeps
+# the Python and Node emitters byte-parity and fails closed on an out-of-range value.
+_MAX_SAFE_INT = 2 ** 53 - 1
+# Every field a recurr standing-authority descriptor carries (see standing_authority()); the
+# composition requires the whole shape, not just the four the cap logic reads, so a fabricated
+# partial mapping cannot be dressed up as an authority.
+_DESCRIPTOR_FIELDS = (
+    "asset", "canon_version", "cap_amount_minor", "cap_period_seconds", "chain",
+    "customer_wallet_address", "decimals", "expires_at", "merchant_ref",
+    "per_cycle_amount_minor", "revocation_method",
+)
+
+
+def _exec_link(index: int, only: bool, execution: Mapping[str, Any],
+               authority_name: str, policy_name: str) -> dict:
+    amt = execution.get("amount_minor")
+    ts = execution.get("executed_at_ms")
+    for name, val in (("amount_minor", amt), ("executed_at_ms", ts)):
+        if isinstance(val, bool) or not isinstance(val, int) or not (0 < val <= _MAX_SAFE_INT):
+            raise RecurrError(f"execution {name} must be a positive integer within the JS-safe range")
+    preimage: dict[str, Any] = {
+        "authority_ref": "@" + authority_name,
+        "policy_ref": "@" + policy_name,
+        "amount_minor": amt,
+    }
+    if "cycle_index" in execution:
+        ci = execution["cycle_index"]
+        if isinstance(ci, bool) or not isinstance(ci, int) or not (0 <= ci <= _MAX_SAFE_INT):
+            raise RecurrError("execution cycle_index must be a non-negative integer within the JS-safe range")
+        preimage["cycle_index"] = ci
+    preimage["executed_at_ms"] = ts
+    return {"name": "execution" if only else f"execution_{index}", "preimage": preimage}
+
+
+def keystone_chain(
+    descriptor: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any],
+    executions: Sequence[Mapping[str, Any]],
+    authority_name: str = "standing_authority",
+    policy_name: str = "policy_bound",
+) -> dict:
+    """Compose a Recurr standing authority into an offline-verifiable Keystone chain.
+
+    The ``authority_name`` link preimage is the recurr ``descriptor`` VERBATIM, so that link's
+    Keystone reference is exactly ``authority_ref(descriptor)``, byte-for-byte -- the recurr
+    authority_ref IS the keystone link ref. ``policy`` is the operator's opaque ``policy_bound``
+    preimage (recurr does not own policy shape). Each item in ``executions`` is a mapping with a
+    positive-integer ``amount_minor`` and ``executed_at_ms`` (and an optional ``cycle_index``); it
+    becomes an execution link bound to the authority and policy via ``@`` alias markers, under one
+    ``recurring_cap`` assertion.
+
+    This is FORMAT and METHOD only: it EMITS the composition. The cap checks (per_cycle <= policy
+    max, each amount <= per_cycle, each time <= expires_at, cumulative <= cap) are enforced by the
+    external Keystone verifier, not here. Verify the emitted chain offline with ``algovoi-keystone``
+    (see the README) -- no AlgoVoi software in your trust base."""
+    missing = [f for f in _DESCRIPTOR_FIELDS if f not in descriptor]
+    if missing:
+        raise RecurrError(f"descriptor is not a recurr standing authority (missing {missing})")
+    if descriptor.get("expires_at") in (None, ""):
+        raise RecurrError("descriptor.expires_at must be set to compose a Keystone chain")
+    if not isinstance(policy, Mapping) or not policy:
+        raise RecurrError("policy must be a non-empty mapping (the operator's policy_bound preimage)")
+    if not executions:
+        raise RecurrError("executions must be a non-empty sequence")
+    only = len(executions) == 1
+    chain = [
+        {"name": authority_name, "preimage": dict(descriptor)},
+        {"name": policy_name, "preimage": dict(policy)},
+    ]
+    exec_names = []
+    for i, e in enumerate(executions):
+        link = _exec_link(i, only, e, authority_name, policy_name)
+        chain.append(link)
+        exec_names.append(link["name"])
+    return {
+        "schema": KEYSTONE_SCHEMA,
+        "canon": CANON_VERSION,
+        "composition": KEYSTONE_COMPOSITION,
+        "chain": chain,
+        "assertions": [{
+            "kind": "recurring_cap",
+            "authority": authority_name,
+            "policy": policy_name,
+            "executions": exec_names,
+        }],
+    }
+
+
 __all__ = [
     "__version__", "SHA256_PREFIX", "CANON_VERSION", "MIN_CAP_PERIOD_SECONDS", "AUTHORITY_STATES",
     "PAYLOAD_VERSION", "STELLAR_MAX_EXPIRATION_LEDGER", "RecurrError", "sha256_jcs",
@@ -396,4 +490,5 @@ __all__ = [
     "standing_authority", "authority_ref", "verify_authority_ref",
     "build_evm_approve", "build_solana_approve", "build_hedera_allowance", "build_stellar_soroban",
     "build_algorand_vault", "daily_cap_atomic", "signing_payload_ref", "disclosure_card",
+    "KEYSTONE_SCHEMA", "KEYSTONE_COMPOSITION", "keystone_chain",
 ]

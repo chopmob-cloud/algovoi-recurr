@@ -315,3 +315,105 @@ export function disclosureCard(
     lines,
   };
 }
+
+// ── compose into a Keystone chain (verify offline with the external Keystone verifier) ─────────
+export const KEYSTONE_SCHEMA = 'algovoi-keystone-chain/v2' as const;
+export const KEYSTONE_COMPOSITION = 'recurring-standing-authority/v1' as const;
+// Every field a recurr standing-authority descriptor carries (see standingAuthority()); the
+// composition requires the whole shape so a fabricated partial object cannot pose as an authority.
+const DESCRIPTOR_FIELDS = [
+  'asset', 'canon_version', 'cap_amount_minor', 'cap_period_seconds', 'chain',
+  'customer_wallet_address', 'decimals', 'expires_at', 'merchant_ref',
+  'per_cycle_amount_minor', 'revocation_method',
+] as const;
+
+function execLink(
+  index: number, only: boolean, execution: Record<string, unknown>,
+  authorityName: string, policyName: string,
+): Record<string, unknown> {
+  const amt = execution.amount_minor;
+  const ts = execution.executed_at_ms;
+  // Number.isSafeInteger (not isInteger): reject a value above 2**53 that Node would round while
+  // Python keeps exact, so the two emitters stay byte-parity and fail closed on an out-of-range one.
+  for (const [name, val] of [['amount_minor', amt], ['executed_at_ms', ts]] as const) {
+    if (typeof val !== 'number' || !Number.isSafeInteger(val) || val <= 0) {
+      throw new RecurrError(`execution ${name} must be a positive integer within the JS-safe range`);
+    }
+  }
+  const preimage: Record<string, unknown> = {
+    authority_ref: '@' + authorityName,
+    policy_ref: '@' + policyName,
+    amount_minor: amt,
+  };
+  if ('cycle_index' in execution) {
+    const ci = execution.cycle_index;
+    if (typeof ci !== 'number' || !Number.isSafeInteger(ci) || ci < 0) {
+      throw new RecurrError('execution cycle_index must be a non-negative integer within the JS-safe range');
+    }
+    preimage.cycle_index = ci;
+  }
+  preimage.executed_at_ms = ts;
+  return { name: only ? 'execution' : `execution_${index}`, preimage };
+}
+
+/**
+ * Compose a Recurr standing authority into an offline-verifiable Keystone chain.
+ *
+ * The authority link preimage is the recurr `descriptor` VERBATIM, so that link's Keystone
+ * reference is exactly `authorityRef(descriptor)`, byte-for-byte -- the recurr authority_ref IS the
+ * keystone link ref. `policy` is the operator's opaque `policy_bound` preimage (recurr does not own
+ * policy shape). Each execution (positive-integer `amount_minor` + `executed_at_ms`, optional
+ * `cycle_index`) becomes an execution link bound to the authority and policy via `@` alias markers,
+ * under one `recurring_cap` assertion.
+ *
+ * FORMAT and METHOD only: it EMITS the composition. The cap checks are enforced by the external
+ * Keystone verifier, not here -- verify the emitted chain offline with `algovoi-keystone`.
+ */
+export function keystoneChain(
+  descriptor: Record<string, unknown>,
+  o: {
+    policy: Record<string, unknown>;
+    executions: ReadonlyArray<Record<string, unknown>>;
+    authorityName?: string;
+    policyName?: string;
+  },
+): Record<string, unknown> {
+  const authorityName = o.authorityName ?? 'standing_authority';
+  const policyName = o.policyName ?? 'policy_bound';
+  const missing = DESCRIPTOR_FIELDS.filter((f) => !(f in descriptor));
+  if (missing.length > 0) {
+    throw new RecurrError(`descriptor is not a recurr standing authority (missing ${JSON.stringify(missing)})`);
+  }
+  if (descriptor.expires_at === null || descriptor.expires_at === undefined || descriptor.expires_at === '') {
+    throw new RecurrError('descriptor.expires_at must be set to compose a Keystone chain');
+  }
+  if (o.policy === null || typeof o.policy !== 'object' || Object.keys(o.policy).length === 0) {
+    throw new RecurrError('policy must be a non-empty object (the operator policy_bound preimage)');
+  }
+  if (!o.executions || o.executions.length === 0) {
+    throw new RecurrError('executions must be a non-empty array');
+  }
+  const only = o.executions.length === 1;
+  const chain: Array<Record<string, unknown>> = [
+    { name: authorityName, preimage: { ...descriptor } },
+    { name: policyName, preimage: { ...o.policy } },
+  ];
+  const execNames: string[] = [];
+  o.executions.forEach((e, i) => {
+    const link = execLink(i, only, e, authorityName, policyName);
+    chain.push(link);
+    execNames.push(link.name as string);
+  });
+  return {
+    schema: KEYSTONE_SCHEMA,
+    canon: CANON_VERSION,
+    composition: KEYSTONE_COMPOSITION,
+    chain,
+    assertions: [{
+      kind: 'recurring_cap',
+      authority: authorityName,
+      policy: policyName,
+      executions: execNames,
+    }],
+  };
+}

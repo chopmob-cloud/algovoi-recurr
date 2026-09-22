@@ -86,6 +86,42 @@ customer sees before any wallet prompt (cap, cycle, per-cycle cap, expiry, chain
 the honest UK line that a crypto standing authority is outside the Payment Services Regulations'
 chargeback regime. All disclosure copy is dash-checked (no em/en dashes).
 
+## Verify inside a Keystone chain
+
+A recurr authority does not stand alone: each cycle pull is an *execution* that must stay inside the
+one authority the customer signed, which must in turn stay inside the operator's policy. That whole
+relationship composes into a single, offline-verifiable **Keystone chain**, and recurr emits it.
+
+```python
+from algovoi_recurr import standing_authority, authority_ref, keystone_chain, sha256_jcs
+
+authority = standing_authority(
+    merchant_ref="acme-sub-1", chain="base", customer_wallet_address="0xCUST",
+    cap_amount_minor=120_000_000, per_cycle_amount_minor=10_000_000,
+    cap_period_seconds=2592000, expires_at="2027-05-08T00:00:00Z",
+)
+policy = {"policy_id": "aml.recurring", "version": 1, "max_amount": 10_000_000}
+
+chain = keystone_chain(
+    authority,
+    policy=policy,
+    executions=[{"amount_minor": 10_000_000, "cycle_index": 3, "executed_at_ms": 1789000000000}],
+)
+
+# The standing_authority link is the descriptor VERBATIM, so its Keystone reference is exactly the
+# recurr authority_ref, byte for byte. The recurr authority_ref IS the Keystone link ref.
+assert "sha256:" + sha256_jcs(chain["chain"][0]["preimage"]) == authority_ref(authority)
+```
+
+`keystoneChain(descriptor, { policy, executions })` in Node emits the byte-identical chain (the whole
+composition recomputes to the same `"sha256:" + SHA-256(JCS(chain))` reference in both languages).
+This is **format and method** only, in keeping with the rest of recurr: it emits the composition, it
+is not the engine. The cap semantics (per-cycle pull <= policy max, each pull <= the per-cycle cap,
+each pull inside the authority window, cumulative pulls <= the period cap) are enforced by the
+**AlgoVoi Keystone verifier**'s `recurring_cap` assertion, byte-parity in Python and Node. Recurr
+emits the chain; the Keystone verifier checks it. Every reference recomputes from the bytes alone, so
+there is no AlgoVoi software in your trust base.
+
 ## Known drift (pinned honestly)
 
 The Stellar lane is pinned to the **server-emitted** `stellar_soroban_auth_v2` (function `approve`).
@@ -100,8 +136,9 @@ PYTHONPATH=python python examples/standing_authority.py
 ```
 
 Byte-parity is pinned in [`tests/test_parity.py`](tests/test_parity.py) and
-[`tests/parity.mjs`](tests/parity.mjs): a fixed descriptor and an ARC EVM payload (18-decimal,
-`10**12` scale) must produce the same `authority_ref` and `payload_ref` in both languages.
+[`tests/parity.mjs`](tests/parity.mjs): a fixed descriptor, an ARC EVM payload (18-decimal, `10**12`
+scale), and the Keystone-chain composition must produce the same `authority_ref`, `payload_ref`, and
+chain reference in both languages.
 
 ## Install
 
