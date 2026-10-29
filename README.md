@@ -116,11 +116,87 @@ assert "sha256:" + sha256_jcs(chain["chain"][0]["preimage"]) == authority_ref(au
 `keystoneChain(descriptor, { policy, executions })` in Node emits the byte-identical chain (the whole
 composition recomputes to the same `"sha256:" + SHA-256(JCS(chain))` reference in both languages).
 This is **format and method** only, in keeping with the rest of recurr: it emits the composition, it
-is not the engine. The cap semantics (per-cycle pull <= policy max, each pull <= the per-cycle cap,
-each pull inside the authority window, cumulative pulls <= the period cap) are enforced by the
-**AlgoVoi Keystone verifier**'s `recurring_cap` assertion, byte-parity in Python and Node. Recurr
-emits the chain; the Keystone verifier checks it. Every reference recomputes from the bytes alone, so
-there is no AlgoVoi software in your trust base.
+is not the engine.
+
+## Check the chain with the Keystone verifier
+
+The cap semantics (per-cycle pull <= policy max, each pull <= the per-cycle cap, each pull inside the
+authority window, cumulative pulls <= the period cap) are enforced by the Keystone verifier's
+`recurring_cap` assertion, not by recurr. Install the umbrella and verify the chain offline:
+
+```bash
+# from source, until 0.6.0 is on the index
+pip install "git+https://github.com/chopmob-cloud/algovoi-keystone.git#subdirectory=packages/algovoi-keystone"
+keystone verify chain.json
+```
+
+```
+keystone chain: standing_authority  ->  policy_bound  ->  execution_0  ->  execution_1
+------------------------------------------------------------
+  OK  standing_authority
+      sha256:69ab6fe324fd020790ed291328125add4d737d9fe7be51dca9b4a57325b57ec8
+  OK  policy_bound
+      sha256:30d49f629fc22b246f09684c75ff2b0b7f41626e7b2fb14a99a01a3f82e42572
+  OK  execution_0
+      sha256:d18fcfe4...  binds standing_authority, policy_bound
+assertions:
+  OK  recurring_cap
+------------------------------------------------------------
+KEYSTONE VALID: 4/4 links compose, recompute byte-for-byte, no issuer contact + recurring-cap hold.
+```
+
+Exit codes are deliberate: `0` composes, `1` a well-formed chain that does not prove what it claims
+(per-cycle cap exceeded, past expiry, over the period cap), `2` bad input or invocation. An over-cap
+chain fails closed:
+
+```
+KEYSTONE BROKEN: recurring_cap failed -- execution.amount_minor 11000000 exceeds per_cycle cap 10000000.
+```
+
+The same check is importable. The verdict is a pure function of the bytes — every reference recomputes
+with any RFC 8785 implementation — so a third party can reproduce it without trusting either package:
+
+```python
+from algovoi_keystone import verify_chain
+
+result = verify_chain(chain)
+assert result.ok, result.failed_assertion
+```
+
+Canonicalisation comes from the independent `rfc8785` library, so verifying needs no AlgoVoi software
+in the trust base; when `algovoi-substrate` is installed as well, the two canonicalisers are
+cross-checked byte-for-byte and a divergence fails closed.
+
+### Pin the authority the customer signed
+
+A chain recomputes from its own bytes, so on its own it proves internal consistency only: raise
+`cap_amount_minor` in the descriptor and the chain still recomputes — including past the cap the
+customer approved on-chain. Pin the `standing_authority` link to the `authority_ref` that was signed
+and a widened authority is caught:
+
+```bash
+keystone verify chain.json --expect standing_authority=sha256:69ab6fe3...   # the signed authority_ref
+```
+
+```
+KEYSTONE BROKEN: ref_pinned failed -- standing_authority recomputed sha256:0643cec3... != pinned sha256:69ab6fe3...
+```
+
+```python
+from algovoi_keystone import verify_chain
+
+assert verify_chain(chain, expect={"standing_authority": authority_ref(authority)}).ok
+```
+
+### Revocation
+
+`keystone_chain()` emits the authority, the operator's policy and each cycle's execution under one
+`recurring_cap` assertion. Revocation is a separate link, not something recurr emits today: a chain
+that carries a `revocation` link (binding the revoked authority by `@reference` and carrying
+`revoked_at_ms`) is checked by the verifier's `not_revoked` assertion, so any execution at or after
+the revocation fails closed. See `revocation-golden.json` and `recurr-broken-revoked.json` in the
+Keystone vector set for the shape, and add that link from the revocation envelope you already use
+(for example `algovoi-revocation-ref`) before relying on the `not_revoked` guarantee.
 
 ## Known drift (pinned honestly)
 
