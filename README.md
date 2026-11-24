@@ -1,5 +1,8 @@
 # Algovoi-recurr
 
+
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+
 The open **format and method** for AlgoVoi **Recurr Tier 2 standing authorities**: the way a
 recurring, capped, revocable on-chain payment authorization is described, signed, disclosed, and
 revoked. Apache-2.0, Python + Node, byte-identical output.
