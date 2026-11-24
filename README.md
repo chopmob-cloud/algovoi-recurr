@@ -1,6 +1,6 @@
 # Algovoi-recurr
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE) [![algovoi-compliance-gate-a2a](https://img.shields.io/badge/algovoi--compliance--gate--a2a-8A2BE2)](https://github.com/chopmob-cloud/algovoi-compliance-gate-a2a)
 
 The open **format and method** for AlgoVoi **Recurr Tier 2 standing authorities**: the way a
 recurring, capped, revocable on-chain payment authorization is described, signed, disclosed, and
